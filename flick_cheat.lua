@@ -1,6 +1,6 @@
 --[[
     Kronex Ultimate Edition | Flick All-In-One
-    Version: 4.0 (SINGLE FILE)
+    Version: 5.0 (FIXED AIM & ESP)
     Status: Undetected
 ]]
 
@@ -14,21 +14,28 @@ local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
+-- // Drawing Setup
+local FOVDrawing = Drawing.new("Circle")
+FOVDrawing.Thickness = 1
+FOVDrawing.Color = Color3.fromRGB(255, 255, 255)
+FOVDrawing.Filled = false
+FOVDrawing.Transparency = 1
+FOVDrawing.Visible = false
+
 -- // Settings Management
 local Settings = {
     Combat = {
         AimbotEnabled = false,
         FlickBot = false,
         AimbotSmoothness = 0.5,
-        AimbotFOV = 100,
+        AimbotFOV = 150,
         ShowFOV = false,
         TeamCheck = true,
         TargetPart = "Head",
         VisibleCheck = true,
         HitboxExpander = false,
         HitboxSize = 2,
-        Triggerbot = false,
-        TriggerDelay = 50
+        Triggerbot = false
     },
     Visuals = {
         Enabled = false,
@@ -74,7 +81,8 @@ function Utils:GetClosestTarget()
                 if Part then
                     local Vector, OnScreen = Camera:WorldToViewportPoint(Part.Position)
                     if OnScreen then
-                        local Dist = (Vector2.new(Mouse.X, Mouse.Y) - Vector2.new(Vector.X, Vector.Y)).Magnitude
+                        local MousePos = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+                        local Dist = (MousePos - Vector2.new(Vector.X, Vector.Y)).Magnitude
                         if Dist < MaxDist then
                             MaxDist = Dist
                             BestTarget = Plr.Character
@@ -87,13 +95,7 @@ function Utils:GetClosestTarget()
     return BestTarget
 end
 
--- // Combat & Visuals Setup
-local FOVDrawing = Drawing.new("Circle")
-FOVDrawing.Thickness = 1
-FOVDrawing.Color = Color3.fromRGB(255, 255, 255)
-FOVDrawing.Filled = false
-FOVDrawing.Transparency = 1
-
+-- // ESP System
 local ESP = {Objects = {}}
 function ESP:Create(Player)
     if self.Objects[Player] then return end
@@ -101,9 +103,24 @@ function ESP:Create(Player)
         Box = Drawing.new("Square"),
         Name = Drawing.new("Text"),
         Health = Drawing.new("Line"),
+        HealthBg = Drawing.new("Line"),
         Dist = Drawing.new("Text"),
         Tracer = Drawing.new("Line")
     }
+    local obj = self.Objects[Player]
+    obj.Box.Thickness = 1
+    obj.Box.Filled = false
+    obj.Box.Color = Color3.fromRGB(255, 255, 255)
+    obj.Name.Size = 14
+    obj.Name.Center = true
+    obj.Name.Outline = true
+    obj.Name.Color = Color3.fromRGB(255, 255, 255)
+    obj.Dist.Size = 13
+    obj.Dist.Center = true
+    obj.Dist.Outline = true
+    obj.Health.Thickness = 2
+    obj.HealthBg.Thickness = 2
+    obj.HealthBg.Color = Color3.fromRGB(0, 0, 0)
 end
 
 function ESP:Clear(Player)
@@ -116,25 +133,33 @@ end
 -- // Main Update Loop
 RunService.RenderStepped:Connect(function()
     -- FOV
+    local MousePos = UserInputService:GetMouseLocation()
     FOVDrawing.Visible = Settings.Combat.ShowFOV
     FOVDrawing.Radius = Settings.Combat.AimbotFOV
-    FOVDrawing.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
+    FOVDrawing.Position = MousePos
 
-    -- Aimbot / FlickBot
+    -- Aimbot Logic (MOUSE MOVEMENT)
     if Settings.Combat.AimbotEnabled or Settings.Combat.FlickBot then
         local TargetCharacter = Utils:GetClosestTarget()
         if TargetCharacter then
             local Part = Utils:GetPart(TargetCharacter, Settings.Combat.TargetPart)
             if Part then
-                if Settings.Combat.FlickBot then
-                    local Vector, OnScreen = Camera:WorldToViewportPoint(Part.Position)
+                local Vector, OnScreen = Camera:WorldToViewportPoint(Part.Position)
+                if OnScreen then
                     local ScreenPos = Vector2.new(Vector.X, Vector.Y)
-                    local MousePos = Vector2.new(Mouse.X, Mouse.Y)
-                    if (ScreenPos - MousePos).Magnitude < 50 then
-                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, Part.Position)
+                    local Delta = (ScreenPos - MousePos)
+                    
+                    if Settings.Combat.FlickBot then
+                        if Delta.Magnitude < 50 then
+                            if mousemoverel then mousemoverel(Delta.X, Delta.Y) end
+                        end
+                    else
+                        -- Smooth mouse aim
+                        local Smooth = Settings.Combat.AimbotSmoothness * 10
+                        if mousemoverel then
+                            mousemoverel(Delta.X / Smooth, Delta.Y / Smooth)
+                        end
                     end
-                else
-                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, Part.Position), Settings.Combat.AimbotSmoothness / 5)
                 end
             end
         end
@@ -153,95 +178,104 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Hitbox & ESP Logic
-    if Settings.Visuals.Enabled or Settings.Combat.HitboxExpander then
-        for _, Plr in pairs(Players:GetPlayers()) do
-            if Plr ~= LocalPlayer and Utils:IsAlive(Plr) then
-                local Char = Plr.Character
-                local Root = Char:FindFirstChild("HumanoidRootPart")
-                
-                -- Hitboxes
-                if Root then
-                    if Settings.Combat.HitboxExpander then
-                        Root.Size = Vector3.new(Settings.Combat.HitboxSize, Settings.Combat.HitboxSize, Settings.Combat.HitboxSize)
-                        Root.Transparency = 0.7
-                        Root.CanCollide = false
-                    else
-                        Root.Size = Vector3.new(2, 2, 1)
-                        Root.Transparency = 1
-                        Root.CanCollide = true
-                    end
-
-                    -- ESP
-                    if Settings.Visuals.Enabled then
-                        local Pos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
-                        local Data = ESP.Objects[Plr]
-                        if not Data then ESP:Create(Plr) Data = ESP.Objects[Plr] end
-                        
-                        if OnScreen then
-                            local Top = Camera:WorldToViewportPoint(Char.Head.Position + Vector3.new(0, 0.5, 0))
-                            local Bottom = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
-                            local Height = Bottom.Y - Top.Y
-                            local Width = Height / 1.5
-
-                            if Settings.Visuals.Boxes then
-                                Data.Box.Visible = true
-                                Data.Box.Size = Vector2.new(Width, Height)
-                                Data.Box.Position = Vector2.new(Pos.X - Width/2, Top.Y)
-                            else Data.Box.Visible = false end
-
-                            if Settings.Visuals.Names then
-                                Data.Name.Visible = true
-                                Data.Name.Text = Plr.DisplayName or Plr.Name
-                                Data.Name.Position = Vector2.new(Pos.X, Top.Y - 15)
-                                Data.Name.Center = true
-                                Data.Name.Outline = true
-                            else Data.Name.Visible = false end
-
-                            if Settings.Visuals.Health then
-                                local H = Char.Humanoid.Health / Char.Humanoid.MaxHealth
-                                Data.Health.Visible = true
-                                Data.Health.From = Vector2.new(Pos.X - Width/2 - 5, Bottom.Y)
-                                Data.Health.To = Vector2.new(Pos.X - Width/2 - 5, Bottom.Y - (Height * H))
-                                Data.Health.Color = Color3.fromHSV(H * 0.3, 1, 1)
-                            else Data.Health.Visible = false end
-
-                            if Settings.Visuals.Distance then
-                                Data.Dist.Visible = true
-                                local MyRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                if MyRoot then
-                                    Data.Dist.Text = math.floor((Root.Position - MyRoot.Position).Magnitude) .. "m"
-                                end
-                                Data.Dist.Position = Vector2.new(Pos.X, Bottom.Y + 5)
-                                Data.Dist.Center = true
-                                Data.Dist.Outline = true
-                            else Data.Dist.Visible = false end
-
-                            if Settings.Visuals.Tracers then
-                                Data.Tracer.Visible = true
-                                Data.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-                                Data.Tracer.To = Vector2.new(Pos.X, Pos.Y)
-                            else Data.Tracer.Visible = false end
-                        else ESP:Clear(Plr) end
-                    else ESP:Clear(Plr) end
+    -- Visuals & Hitboxes
+    for _, Plr in pairs(Players:GetPlayers()) do
+        if Plr ~= LocalPlayer and Utils:IsAlive(Plr) then
+            local Char = Plr.Character
+            local Root = Char:FindFirstChild("HumanoidRootPart")
+            local Hum = Char:FindFirstChildOfClass("Humanoid")
+            
+            if Root and Hum then
+                -- Hitbox Expander
+                if Settings.Combat.HitboxExpander then
+                    Root.Size = Vector3.new(Settings.Combat.HitboxSize, Settings.Combat.HitboxSize, Settings.Combat.HitboxSize)
+                    Root.Transparency = 0.7
+                    Root.CanCollide = false
+                else
+                    Root.Size = Vector3.new(2, 2, 1)
+                    Root.Transparency = 1
+                    Root.CanCollide = true
                 end
-            else
-                ESP:Clear(Plr)
+
+                -- 2D ESP Calculations
+                local Data = ESP.Objects[Plr]
+                if Settings.Visuals.Enabled then
+                    if not Data then ESP:Create(Plr) Data = ESP.Objects[Plr] end
+                    local Pos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+                    
+                    if OnScreen then
+                        local Head = Char:FindFirstChild("Head")
+                        local HeadPos = Camera:WorldToViewportPoint(Head.Position + Vector3.new(0, 0.5, 0))
+                        local LegPos = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
+                        
+                        local Height = math.abs(HeadPos.Y - LegPos.Y)
+                        local Width = Height / 1.5
+                        local Size = Vector2.new(Width, Height)
+                        local Position = Vector2.new(Pos.X - Width/2, HeadPos.Y)
+
+                        -- Box
+                        if Settings.Visuals.Boxes then
+                            Data.Box.Visible = true
+                            Data.Box.Size = Size
+                            Data.Box.Position = Position
+                        else Data.Box.Visible = false end
+
+                        -- Name
+                        if Settings.Visuals.Names then
+                            Data.Name.Visible = true
+                            Data.Name.Text = Plr.DisplayName or Plr.Name
+                            Data.Name.Position = Vector2.new(Pos.X, Position.Y - 16)
+                        else Data.Name.Visible = false end
+
+                        -- Health
+                        if Settings.Visuals.Health then
+                            local HealthPercent = Hum.Health / Hum.MaxHealth
+                            local HealthHeight = Height * HealthPercent
+                            
+                            Data.HealthBg.Visible = true
+                            Data.HealthBg.From = Vector2.new(Position.X - 5, Position.Y + Height)
+                            Data.HealthBg.To = Vector2.new(Position.X - 5, Position.Y)
+                            
+                            Data.Health.Visible = true
+                            Data.Health.From = Vector2.new(Position.X - 5, Position.Y + Height)
+                            Data.Health.To = Vector2.new(Position.X - 5, Position.Y + Height - HealthHeight)
+                            Data.Health.Color = Color3.fromHSV(HealthPercent * 0.3, 1, 1)
+                        else 
+                            Data.Health.Visible = false 
+                            Data.HealthBg.Visible = false
+                        end
+
+                        -- Distance
+                        if Settings.Visuals.Distance then
+                            local Dist = math.floor((Root.Position - Camera.CFrame.Position).Magnitude)
+                            Data.Dist.Visible = true
+                            Data.Dist.Text = "["..Dist.."m]"
+                            Data.Dist.Position = Vector2.new(Pos.X, Position.Y + Height + 2)
+                        else Data.Dist.Visible = false end
+
+                        -- Tracers
+                        if Settings.Visuals.Tracers then
+                            Data.Tracer.Visible = true
+                            Data.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                            Data.Tracer.To = Vector2.new(Pos.X, Pos.Y)
+                        else Data.Tracer.Visible = false end
+                    else ESP:Clear(Plr) end
+                else ESP:Clear(Plr) end
             end
+        else
+            ESP:Clear(Plr)
         end
-    else
-        for Plr, _ in pairs(ESP.Objects) do ESP:Clear(Plr) end
     end
 
-    -- Movement
+    -- Movement Features
     if Utils:IsAlive(LocalPlayer) then
-        local Humanoid = LocalPlayer.Character.Humanoid
-        Humanoid.WalkSpeed = Settings.Movement.WalkSpeed
-        Humanoid.JumpPower = Settings.Movement.JumpPower
+        local Hum = LocalPlayer.Character.Humanoid
+        Hum.WalkSpeed = Settings.Movement.WalkSpeed
+        Hum.JumpPower = Settings.Movement.JumpPower
         
         if Settings.Movement.InfiniteJump then
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                Hum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end
         
@@ -253,6 +287,7 @@ RunService.RenderStepped:Connect(function()
             if UserInputService:IsKeyDown(Enum.KeyCode.D) then Dir = Dir + Camera.CFrame.RightVector end
             if UserInputService:IsKeyDown(Enum.KeyCode.A) then Dir = Dir - Camera.CFrame.RightVector end
             HRP.Velocity = Dir * Settings.Movement.FlySpeed
+            HRP.CFrame = HRP.CFrame + (Dir * (Settings.Movement.FlySpeed / 50))
         end
     end
 
@@ -268,7 +303,7 @@ end)
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local Window = Fluent:CreateWindow({
     Title = "Kronex Ultimate | Flick",
-    SubTitle = "v4.0 (AIO)",
+    SubTitle = "v5.0 (MOUSE AIM)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true,
@@ -283,18 +318,16 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
--- Combat Tab
 Tabs.Combat:AddToggle("AimEn", {Title = "Enable Aimbot", Default = false}):OnChanged(function(v) Settings.Combat.AimbotEnabled = v end)
 Tabs.Combat:AddToggle("FlickEn", {Title = "Flick Mode", Default = false}):OnChanged(function(v) Settings.Combat.FlickBot = v end)
-Tabs.Combat:AddSlider("AimSm", {Title = "Smoothing", Min = 0.1, Max = 1, Default = 0.5, Rounding = 2}):OnChanged(function(v) Settings.Combat.AimbotSmoothness = v end)
-Tabs.Combat:AddSlider("AimColorFOV", {Title = "FOV Size", Min = 10, Max = 800, Default = 100}):OnChanged(function(v) Settings.Combat.AimbotFOV = v end)
+Tabs.Combat:AddSlider("AimSm", {Title = "Smoothing", Min = 1, Max = 10, Default = 5, Rounding = 1}):OnChanged(function(v) Settings.Combat.AimbotSmoothness = v end)
+Tabs.Combat:AddSlider("AimColorFOV", {Title = "FOV Size", Min = 10, Max = 800, Default = 150}):OnChanged(function(v) Settings.Combat.AimbotFOV = v end)
 Tabs.Combat:AddToggle("AimFOVSh", {Title = "Show FOV", Default = false}):OnChanged(function(v) Settings.Combat.ShowFOV = v end)
 Tabs.Combat:AddToggle("AimTeam", {Title = "Team Check", Default = true}):OnChanged(function(v) Settings.Combat.TeamCheck = v end)
 Tabs.Combat:AddToggle("TrigEn", {Title = "Enable Triggerbot", Default = false}):OnChanged(function(v) Settings.Combat.Triggerbot = v end)
 Tabs.Combat:AddToggle("HitEn", {Title = "Hitbox Expander", Default = false}):OnChanged(function(v) Settings.Combat.HitboxExpander = v end)
 Tabs.Combat:AddSlider("HitSz", {Title = "Hitbox Size", Min = 2, Max = 15, Default = 2}):OnChanged(function(v) Settings.Combat.HitboxSize = v end)
 
--- Visuals Tab
 Tabs.Visuals:AddToggle("ESPen", {Title = "Enable ESP", Default = false}):OnChanged(function(v) Settings.Visuals.Enabled = v end)
 Tabs.Visuals:AddToggle("ESPBox", {Title = "Boxes", Default = true}):OnChanged(function(v) Settings.Visuals.Boxes = v end)
 Tabs.Visuals:AddToggle("ESPName", {Title = "Names", Default = true}):OnChanged(function(v) Settings.Visuals.Names = v end)
@@ -303,14 +336,12 @@ Tabs.Visuals:AddToggle("ESPDist", {Title = "Distance", Default = true}):OnChange
 Tabs.Visuals:AddToggle("ESPTra", {Title = "Tracers", Default = false}):OnChanged(function(v) Settings.Visuals.Tracers = v end)
 Tabs.Visuals:AddToggle("FullBr", {Title = "Full Bright", Default = false}):OnChanged(function(v) Settings.Visuals.FullBright = v end)
 
--- Movement Tab
 Tabs.Movement:AddSlider("WS", {Title = "WalkSpeed", Min = 16, Max = 100, Default = 16}):OnChanged(function(v) Settings.Movement.WalkSpeed = v end)
 Tabs.Movement:AddSlider("JP", {Title = "JumpPower", Min = 50, Max = 250, Default = 50}):OnChanged(function(v) Settings.Movement.JumpPower = v end)
 Tabs.Movement:AddToggle("InfJump", {Title = "Infinite Jump", Default = false}):OnChanged(function(v) Settings.Movement.InfiniteJump = v end)
 Tabs.Movement:AddToggle("Fly", {Title = "Fly", Default = false}):OnChanged(function(v) Settings.Movement.Fly = v end)
 Tabs.Movement:AddSlider("FlySp", {Title = "Fly Speed", Min = 10, Max = 200, Default = 50}):OnChanged(function(v) Settings.Movement.FlySpeed = v end)
 
--- Settings Tab
 Tabs.Settings:AddButton({
     Title = "Destroy UI",
     Callback = function() 
@@ -323,4 +354,4 @@ Tabs.Settings:AddButton({
 })
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Kronex Ultimate", Content = "Script loaded successfully!", Duration = 5})
+Fluent:Notify({Title = "Kronex Ultimate", Content = "v5.0 Loaded Successfully!", Duration = 5})
