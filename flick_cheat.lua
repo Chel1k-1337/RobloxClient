@@ -170,7 +170,7 @@ RunService.RenderStepped:Connect(function()
                         else Data.Name.Visible = false end
 
                         if Settings.Visuals.Health then
-                            local HPPercent = Hum.Health / Hum.MaxHealth
+                            local HPPercent = math.clamp(Hum.Health / Hum.MaxHealth, 0, 1)
                             Data.HealthBg.Visible = true
                             Data.HealthBg.From = Vector2.new(TopLeft.X - 5, TopLeft.Y + Height)
                             Data.HealthBg.To = Vector2.new(TopLeft.X - 5, TopLeft.Y)
